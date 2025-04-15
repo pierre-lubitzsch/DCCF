@@ -12,14 +12,15 @@ class DCCF(nn.Module):
         self.n_users = data_config['n_users']
         self.n_items = data_config['n_items']
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.plain_adj = data_config['plain_adj']
         self.all_h_list = data_config['all_h_list']
         self.all_t_list = data_config['all_t_list']
         self.A_in_shape = self.plain_adj.tocoo().shape
-        self.A_indices = torch.tensor([self.all_h_list, self.all_t_list], dtype=torch.long).cuda()
-        self.D_indices = torch.tensor([list(range(self.n_users + self.n_items)), list(range(self.n_users + self.n_items))], dtype=torch.long).cuda()
-        self.all_h_list = torch.LongTensor(self.all_h_list).cuda()
-        self.all_t_list = torch.LongTensor(self.all_t_list).cuda()
+        self.A_indices = torch.tensor([self.all_h_list, self.all_t_list], dtype=torch.long).to(self.device)
+        self.D_indices = torch.tensor([list(range(self.n_users + self.n_items)), list(range(self.n_users + self.n_items))], dtype=torch.long).to(self.device)
+        self.all_h_list = torch.LongTensor(self.all_h_list).to(self.device)
+        self.all_t_list = torch.LongTensor(self.all_t_list).to(self.device)
         self.G_indices, self.G_values = self._cal_sparse_adj()
 
         self.emb_dim = args.embed_size
@@ -59,9 +60,9 @@ class DCCF(nn.Module):
 
     def _cal_sparse_adj(self):
 
-        A_values = torch.ones(size=(len(self.all_h_list), 1)).view(-1).cuda()
+        A_values = torch.ones(size=(len(self.all_h_list), 1)).view(-1).to(self.device)
 
-        A_tensor = torch_sparse.SparseTensor(row=self.all_h_list, col=self.all_t_list, value=A_values, sparse_sizes=self.A_in_shape).cuda()
+        A_tensor = torch_sparse.SparseTensor(row=self.all_h_list, col=self.all_t_list, value=A_values, sparse_sizes=self.A_in_shape).to(self.device)
         D_values = A_tensor.sum(dim=1).pow(-0.5)
 
         G_indices, G_values = torch_sparse.spspmm(self.D_indices, D_values, self.A_indices, A_values, self.A_in_shape[0], self.A_in_shape[1], self.A_in_shape[1])
@@ -75,7 +76,7 @@ class DCCF(nn.Module):
         tail_embeddings = torch.nn.functional.normalize(tail_embeddings)
         edge_alpha = (torch.sum(head_embeddings * tail_embeddings, dim=1).view(-1) + 1) / 2
 
-        A_tensor = torch_sparse.SparseTensor(row=self.all_h_list, col=self.all_t_list, value=edge_alpha, sparse_sizes=self.A_in_shape).cuda()
+        A_tensor = torch_sparse.SparseTensor(row=self.all_h_list, col=self.all_t_list, value=edge_alpha, sparse_sizes=self.A_in_shape).to(self.device)
         D_scores_inv = A_tensor.sum(dim=1).pow(-1).nan_to_num(0, 0, 0).view(-1)
 
         G_indices = torch.stack([self.all_h_list, self.all_t_list], dim=0)
@@ -167,9 +168,9 @@ class DCCF(nn.Module):
         return cl_loss
 
     def forward(self, users, pos_items, neg_items):
-        users = torch.LongTensor(users).cuda()
-        pos_items = torch.LongTensor(pos_items).cuda()
-        neg_items = torch.LongTensor(neg_items).cuda()
+        users = torch.LongTensor(users).to(self.device)
+        pos_items = torch.LongTensor(pos_items).to(self.device)
+        neg_items = torch.LongTensor(neg_items).to(self.device)
 
         gnn_embeddings, int_embeddings, gaa_embeddings, iaa_embeddings = self.inference()
 
@@ -198,7 +199,7 @@ class DCCF(nn.Module):
         return mf_loss, emb_loss, cen_loss, cl_loss
 
     def predict(self, users):
-        u_embeddings = self.ua_embedding[torch.LongTensor(users).cuda()]
+        u_embeddings = self.ua_embedding[torch.LongTensor(users).to(self.device)]
         i_embeddings = self.ia_embedding
         batch_ratings = torch.matmul(u_embeddings, i_embeddings.T)
         return batch_ratings

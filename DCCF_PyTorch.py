@@ -76,7 +76,8 @@ if __name__ == '__main__':
     *********************************************************
     Prepare the model and start training
     """
-    _model = DCCF(config, args).cuda()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _model = DCCF(config, args).to(device)
     optimizer = optim.Adam(_model.parameters(), lr=args.lr)
 
     print("Start Training")
