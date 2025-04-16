@@ -23,7 +23,7 @@ class Data(object):
                 df = pd.read_csv(tsv_file, sep='\t', header=0)
 
                 unique_users = df['userId:token'].unique()
-                user_scale = int(0.5 * len(unique_users))
+                user_scale = int(args.user_percentage * len(unique_users))
                 selected_users = unique_users[:user_scale]
 
                 df = df[df['userId:token'].isin(selected_users)]

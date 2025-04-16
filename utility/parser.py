@@ -22,5 +22,6 @@ def parse_args():
     parser.add_argument('--temp', type=float, default=1, help='temperature in ssl loss')
     parser.add_argument('--show_step', type=int, default=1, help='Test every show_step epochs.')
     parser.add_argument('--Ks', nargs='?', default='[20, 40]', help='Metrics scale')
+    parser.add_argument('--user_percentage', type=float, default=1.0, help='Percentag of users from the dataset to take. Useful when memory would be exceeded with all data.')
 
     return parser.parse_args()
