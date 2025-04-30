@@ -141,7 +141,10 @@ if __name__ == '__main__':
     if not os.path.exists('saved'):
         os.mkdir('saved')
     if args.save_model:
-        torch.save(last_state_dict, 'saved/{}.pth'.format(args.dataset))
+        from datetime import datetime
+        now = datetime.now()
+        formatted_time = now.strftime("%b-%d-%Y_%H-%M-%S")
+        torch.save(last_state_dict, f'saved/model_DCCF_seed_{seed}_date_{formatted_time}.pth')
     _model.load_state_dict(last_state_dict)
     with torch.no_grad():
         _model.eval()
