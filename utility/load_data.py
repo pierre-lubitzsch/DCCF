@@ -16,48 +16,90 @@ class Data(object):
         self.sample_num = args.sample_num
 
         if "goodreads" in args.dataset:
+            # tsv_file = os.path.join(self.path, 'goodreads.inter')
+            # if os.path.exists(tsv_file):
+            #     # Load the TSV file
+            #     print("Loading data from TSV file...")
+            #     df = pd.read_csv(tsv_file, sep='\t', header=0)
+
+            #     unique_users = df['userId:token'].unique()
+            #     user_scale = int(args.user_percentage * len(unique_users))
+            #     selected_users = unique_users[:user_scale]
+
+            #     df = df[df['userId:token'].isin(selected_users)]
+
+            #     # Assume the TSV has columns: "userId:token", "movieId:token", "rating:float", "timestamp:float"
+            #     # Map user and movie tokens to consecutive integer indices:
+            #     users = df['userId:token'].values
+            #     items = df['movieId:token'].values
+            #     # Factorize the tokens (if they are not already integers)
+            #     user_ids, user_idx = np.unique(users, return_inverse=True)
+            #     item_ids, item_idx = np.unique(items, return_inverse=True)
+                
+            #     # Build a full interaction matrix (using binary values, i.e. 1 for interaction)
+            #     values = np.ones(len(user_idx))
+            #     full_mat = sp.coo_matrix((values, (user_idx, item_idx)), shape=(len(user_ids), len(item_ids)))
+
+            #     # Split the data: randomly choose 80% of nonzero entries for training, the rest for testing
+            #     num_interactions = full_mat.nnz  # or len(full_mat.data)
+            #     indices = np.arange(num_interactions)
+            #     np.random.shuffle(indices)  # Consider setting a random seed for reproducibility if needed
+            #     split = int(num_interactions * 0.8)
+            #     train_indices = indices[:split]
+            #     test_indices  = indices[split:]
+
+            #     # Extract rows and columns for each split:
+            #     train_row = full_mat.row[train_indices]
+            #     train_col = full_mat.col[train_indices]
+            #     test_row  = full_mat.row[test_indices]
+            #     test_col  = full_mat.col[test_indices]
+
+            #     n_user = full_mat.shape[0]
+            #     n_item = full_mat.shape[1]
+            #     train_mat = sp.coo_matrix((np.ones(len(train_row)), (train_row, train_col)), shape=(n_user, n_item))
+            #     test_mat  = sp.coo_matrix((np.ones(len(test_row)), (test_row, test_col)), shape=(n_user, n_item))
+
             tsv_file = os.path.join(self.path, 'goodreads.inter')
             if os.path.exists(tsv_file):
-                # Load the TSV file
-                print("Loading data from TSV file...")
-                df = pd.read_csv(tsv_file, sep='\t', header=0)
+                print("Loading data from TSV file…")
+                df = pd.read_csv(tsv_file, sep='\t', header=0,
+                                names=['user', 'item', 'rating', 'timestamp'])
 
-                unique_users = df['userId:token'].unique()
-                user_scale = int(args.user_percentage * len(unique_users))
-                selected_users = unique_users[:user_scale]
+                # 1) Apply rating threshold first
+                df = df[df['rating'] >= 3.0].copy()
 
-                df = df[df['userId:token'].isin(selected_users)]
+                # 2) Drop users with fewer than 2 interactions 
+                #    (so that LOO will still leave at least one in train)
+                user_counts = df['user'].value_counts()
+                keep_users = user_counts[user_counts >= 3].index
+                df = df[df['user'].isin(keep_users)]
 
-                # Assume the TSV has columns: "userId:token", "movieId:token", "rating:float", "timestamp:float"
-                # Map user and movie tokens to consecutive integer indices:
-                users = df['userId:token'].values
-                items = df['movieId:token'].values
-                # Factorize the tokens (if they are not already integers)
-                user_ids, user_idx = np.unique(users, return_inverse=True)
-                item_ids, item_idx = np.unique(items, return_inverse=True)
-                
-                # Build a full interaction matrix (using binary values, i.e. 1 for interaction)
-                values = np.ones(len(user_idx))
-                full_mat = sp.coo_matrix((values, (user_idx, item_idx)), shape=(len(user_ids), len(item_ids)))
+                # 3) Now subsample the users
+                unique_users = df['user'].unique()
+                user_scale   = int(args.user_percentage * len(unique_users))
+                selected     = unique_users[:user_scale]
+                df = df[df['user'].isin(selected)]
 
-                # Split the data: randomly choose 80% of nonzero entries for training, the rest for testing
-                num_interactions = full_mat.nnz  # or len(full_mat.data)
-                indices = np.arange(num_interactions)
-                np.random.shuffle(indices)  # Consider setting a random seed for reproducibility if needed
-                split = int(num_interactions * 0.8)
-                train_indices = indices[:split]
-                test_indices  = indices[split:]
+                # 4) Temporal leave-one-out split
+                idx_latest = df.groupby('user')['timestamp'].idxmax()
+                test_df    = df.loc[idx_latest]
+                train_df   = df.drop(idx_latest)
 
-                # Extract rows and columns for each split:
-                train_row = full_mat.row[train_indices]
-                train_col = full_mat.col[train_indices]
-                test_row  = full_mat.row[test_indices]
-                test_col  = full_mat.col[test_indices]
+                # 5) Factorize and build COO mats as before
+                all_users = pd.concat([train_df['user'], test_df['user']]).unique()
+                all_items = pd.concat([train_df['item'], test_df['item']]).unique()
+                u2i = {u: i for i, u in enumerate(all_users)}
+                v2i = {v: j for j, v in enumerate(all_items)}
 
-                n_user = full_mat.shape[0]
-                n_item = full_mat.shape[1]
-                train_mat = sp.coo_matrix((np.ones(len(train_row)), (train_row, train_col)), shape=(n_user, n_item))
-                test_mat  = sp.coo_matrix((np.ones(len(test_row)), (test_row, test_col)), shape=(n_user, n_item))
+                def make_coo(split_df):
+                    rows = split_df['user'].map(u2i).values
+                    cols = split_df['item'].map(v2i).values
+                    data = np.ones(len(split_df), dtype=np.int8)
+                    return sp.coo_matrix((data, (rows, cols)),
+                                        shape=(len(all_users), len(all_items)))
+
+                train_mat = make_coo(train_df)
+                test_mat  = make_coo(test_df)
         elif "movielens" in args.dataset:
             csv_file = os.path.join(self.path, 'rating.csv')
             if os.path.exists(csv_file):
